@@ -1,5 +1,7 @@
 # lve
 
+> ⚠ This project work in progress ⚠
+
 ## Building
 
 Configure CMake:
