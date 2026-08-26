@@ -61,6 +61,7 @@ CPMAddPackage(
     "VULKAN_HPP_NO_CONSTRUCTORS ON"
 )
 target_link_libraries(lve PUBLIC VulkanHpp)
+target_compile_definitions(lve PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC)
 
 # Box3D
 CPMAddPackage(
@@ -71,6 +72,12 @@ CPMAddPackage(
 )
 target_link_libraries(lve PUBLIC box3d::box3d)
 
+# GameNetworkingSockets
+CPMAddPackage("gh:ValveSoftware/GameNetworkingSockets@1.6.0")
+target_link_libraries(lve PUBLIC GameNetworkingSockets::static)
+
 
 target_compile_definitions(lve PUBLIC L_RENDER)
 target_compile_definitions(lve PUBLIC L_STEAM)
+
+target_compile_definitions(lve PRIVATE $<$<CONFIG:Debug>:L_DEBUG>)
