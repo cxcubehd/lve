@@ -2,20 +2,26 @@
 
 #include <expected>
 #include <memory>
-#include <string_view>
+#include <string>
 
 #include <SDL3/SDL.h>
 
 #include "lve/render/render.hh"
 
-class App
+class App final
 {
   public:
-  std::unique_ptr<Renderer> renderer{};
+  App() = default;
+  ~App() noexcept;
 
-  public:
-  SDL_Window* sdl_window{};
+  App(App const&) = delete;
+  auto operator=(App const&) -> App& = delete;
 
-  public:
-  auto init_window() -> std::expected<void, std::string_view>;
+  [[nodiscard]] auto init() -> std::expected<void, std::string>;
+  [[nodiscard]] auto iterate() -> std::expected<void, std::string>;
+  auto handle_event(SDL_Event const& event) noexcept -> void;
+
+  private:
+  SDL_Window* window_{};
+  std::unique_ptr<Renderer> renderer_{};
 };

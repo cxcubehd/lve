@@ -1,16 +1,20 @@
 #pragma once
 
+#include <cstdint>
+
 #include <vulkan/vulkan_raii.hpp>
 
 struct RenderContext
 {
-  vk::raii::Instance instance;
-  vk::raii::Context context;
-  vk::raii::PhysicalDevice physical_device;
-  vk::raii::Device device;
+  vk::raii::Context loader{};
+  vk::raii::Instance instance{nullptr};
+  vk::raii::DebugUtilsMessengerEXT debug_messenger{nullptr};
+  vk::raii::SurfaceKHR surface{nullptr};
+  vk::raii::PhysicalDevice physical_device{nullptr};
+  vk::raii::Device device{nullptr};
+  vk::raii::Queue graphics_queue{nullptr};
+  vk::raii::Queue present_queue{nullptr};
 
-  vk::Queue graphics_queue;
-  vk::Queue present_queue;
-
-  vk::SurfaceKHR surface;
+  std::uint32_t graphics_queue_family{};
+  std::uint32_t present_queue_family{};
 };

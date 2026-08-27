@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 4.4.2)
 project(lve)
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_executable(lve)
@@ -23,6 +25,12 @@ file(
     "src/lve/*.hh"
 )
 target_sources(lve PUBLIC ${LVE_SOUCES} ${LVE_HEADERS})
+
+if(MSVC)
+    target_compile_options(lve PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(lve PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 include(cmake/CPM.cmake)
 
@@ -61,7 +69,11 @@ CPMAddPackage(
     "VULKAN_HPP_NO_CONSTRUCTORS ON"
 )
 target_link_libraries(lve PUBLIC VulkanHpp)
-target_compile_definitions(lve PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC)
+target_compile_definitions(
+    lve PRIVATE
+    VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+    VULKAN_HPP_HANDLE_ERROR_OUT_OF_DATE_AS_SUCCESS
+)
 
 # Box3D
 CPMAddPackage(
