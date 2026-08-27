@@ -22,6 +22,8 @@ class App final
   auto handle_event(SDL_Event const& event) noexcept -> void;
 
   private:
+  [[nodiscard]] auto init_window_() -> std::expected<void, std::string>;
+
   SDL_Window* window_{};
   std::unique_ptr<Renderer> renderer_{};
 };

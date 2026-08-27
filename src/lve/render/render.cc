@@ -1,7 +1,6 @@
 #include "render.hh"
 
 #include <chrono>
-#include <cstdio>
 #include <format>
 #include <ranges>
 #include <stdexcept>
@@ -10,58 +9,28 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
-namespace
+#include "lve/log/log_vk.hh"
+
+static constexpr std::string_view validation_layer =
+  "VK_LAYER_KHRONOS_validation";
+static constexpr std::string_view portability_subset =
+  "VK_KHR_portability_subset";
+
+template <typename Property>
+static auto has_named_property(
+  std::span<Property const> properties, std::string_view name
+) -> bool
 {
-  constexpr std::string_view validation_layer = "VK_LAYER_KHRONOS_validation";
-  constexpr std::string_view portability_subset = "VK_KHR_portability_subset";
-
-  template <typename Property>
-  auto has_named_property(
-    std::span<Property const> properties, std::string_view name
-  ) -> bool
-  {
-    return std::ranges::any_of(
-      properties,
-      [name](Property const& property)
-      {
-        if constexpr (requires { property.extensionName; })
-          return std::string_view{property.extensionName.data()} == name;
-        else return std::string_view{property.layerName.data()} == name;
-      }
-    );
-  }
-
-  VKAPI_ATTR auto VKAPI_CALL vulkan_debug_callback(
-    vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-    vk::DebugUtilsMessageTypeFlagsEXT,
-    vk::DebugUtilsMessengerCallbackDataEXT const* callback_data, void*
-  ) -> vk::Bool32
-  {
-    auto const* label =
-      severity >= vk::DebugUtilsMessageSeverityFlagBitsEXT::eError ? "error"
-      : severity >= vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
-      ? "warning"
-      : "info";
-    std::fprintf(
-      stderr, "[Vulkan %s] %s\n", label,
-      callback_data && callback_data->pMessage ? callback_data->pMessage
-                                               : "(no message)"
-    );
-    return vk::False;
-  }
-
-  auto debug_messenger_create_info() -> vk::DebugUtilsMessengerCreateInfoEXT
-  {
-    return {
-      .messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-        vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
-      .messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-        vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance,
-      .pfnUserCallback = vulkan_debug_callback,
-    };
-  }
-}  // namespace
+  return std::ranges::any_of(
+    properties,
+    [name](Property const& property)
+    {
+      if constexpr (requires { property.extensionName; })
+        return std::string_view{property.extensionName.data()} == name;
+      else return std::string_view{property.layerName.data()} == name;
+    }
+  );
+}
 
 Renderer::Renderer(SDL_Window& window) noexcept : window_{window} {}
 
@@ -194,7 +163,7 @@ auto Renderer::init_instance_() -> void
     .engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0),
     .apiVersion = VK_API_VERSION_1_2,
   };
-  auto const debug_info = debug_messenger_create_info();
+  auto const debug_info = vk_debug_messenger_create_info();
   auto const create_info = vk::InstanceCreateInfo{
     .pNext = debug_utils_enabled_ ? &debug_info : nullptr,
     .flags = instance_flags,
@@ -213,7 +182,7 @@ auto Renderer::init_debug_messenger_() -> void
 {
   if (!debug_utils_enabled_) return;
   context_.debug_messenger = vk::raii::DebugUtilsMessengerEXT{
-    context_.instance, debug_messenger_create_info()
+    context_.instance, vk_debug_messenger_create_info()
   };
 }
 

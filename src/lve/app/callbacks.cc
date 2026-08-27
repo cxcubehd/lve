@@ -1,41 +1,17 @@
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <memory>
 #include <print>
 
 #include <SDL3/SDL_vulkan.h>
-#include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
 
 #include "app.hh"
+#include "lve/log/log_steam.hh"
 
 // SDL3 main callbacks
 #define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL_main.h>
-
-namespace
-{
-#ifdef L_DEBUG
-  auto log_steam_message(
-    ESteamNetworkingSocketsDebugOutputType type, char const* message
-  ) -> void
-  {
-    std::fprintf(
-      stderr, "[GameNetworkingSockets:%d] %s\n", static_cast<int>(type),
-      message ? message : "(no message)"
-    );
-  }
-
-  auto init_steam_debug_log() -> void
-  {
-    SteamNetworkingUtils()->SetDebugOutputFunction(
-      k_ESteamNetworkingSocketsDebugOutputType_Msg, log_steam_message
-    );
-  }
-#endif
-}  // namespace
-
 
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char** argv)
 {

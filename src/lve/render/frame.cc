@@ -5,19 +5,8 @@
 #include <cstdint>
 #include <stdexcept>
 
-namespace
-{
-  constexpr auto gpu_wait_timeout = std::chrono::seconds{1};
-  constexpr auto image_acquire_timeout = std::chrono::milliseconds{100};
-
-  template <typename Duration>
-  auto duration_in_nanoseconds(Duration duration) -> std::uint64_t
-  {
-    return static_cast<std::uint64_t>(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count()
-    );
-  }
-}  // namespace
+static constexpr auto gpu_wait_timeout = std::chrono::seconds{1};
+static constexpr auto image_acquire_timeout = std::chrono::milliseconds{100};
 
 auto Renderer::draw_frame_() -> void
 {
@@ -27,13 +16,23 @@ auto Renderer::draw_frame_() -> void
   auto& frame = frames_[current_frame_];
   auto const frame_fence = *frame.render_complete;
   auto const frame_wait = context_.device.waitForFences(
-    std::array{frame_fence}, vk::True, duration_in_nanoseconds(gpu_wait_timeout)
+    std::array{frame_fence}, vk::True,
+    static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(gpu_wait_timeout)
+        .count()
+    )
   );
   if (frame_wait == vk::Result::eTimeout)
     throw std::runtime_error{"Timed out waiting for a Vulkan frame fence"};
 
   auto const acquired = swapchain_->swapchain.acquireNextImage(
-    duration_in_nanoseconds(image_acquire_timeout), *frame.image_available
+    static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(
+        image_acquire_timeout
+      )
+        .count()
+    ),
+    *frame.image_available
   );
   if (
     acquired.result == vk::Result::eTimeout ||
@@ -59,7 +58,10 @@ auto Renderer::draw_frame_() -> void
   {
     auto const image_wait = context_.device.waitForFences(
       std::array{image_fence}, vk::True,
-      duration_in_nanoseconds(gpu_wait_timeout)
+      static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(gpu_wait_timeout)
+          .count()
+      )
     );
     if (image_wait == vk::Result::eTimeout)
       throw std::runtime_error{"Timed out waiting for a swapchain image fence"};

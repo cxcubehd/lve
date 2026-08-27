@@ -548,3 +548,8 @@ cmake-build-release/
 .vscode/
 #
 ########################
+
+# Source logging modules are not generated log output.
+!src/lve/log/
+!src/lve/log/*.cc
+!src/lve/log/*.hh
