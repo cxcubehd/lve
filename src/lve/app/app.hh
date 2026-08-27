@@ -15,12 +15,16 @@ class App final
   App(App const&) = delete;
   auto operator=(App const&) -> App& = delete;
 
+  private:
+  SDL_Window* window_{};
+
+  std::unique_ptr<Renderer> renderer_{};
+
+  public:
   auto init() -> void;
   auto iterate() -> void;
   auto handle_event(SDL_Event const& event) noexcept -> void;
 
   private:
-  SDL_Window* window_{};
-
-  std::unique_ptr<Renderer> renderer_{};
+  auto init_window_() -> void;
 };

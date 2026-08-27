@@ -13,13 +13,7 @@ App::~App() noexcept
 
 auto App::init() -> void
 {
-  window_ = SDL_CreateWindow(
-    "lve", 1000, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
-  );
-  if (!window_)
-    throw std::runtime_error{
-      std::format("Failed to create SDL window: {}", SDL_GetError())
-    };
+  init_window_();
 
   renderer_ = std::make_unique<Renderer>(*window_);
 }
@@ -45,4 +39,15 @@ auto App::handle_event(SDL_Event const& event) noexcept -> void
     default:
       break;
   }
+}
+
+auto App::init_window_() -> void
+{
+  window_ = SDL_CreateWindow(
+    "lve", 1000, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+  );
+  if (!window_)
+    throw std::runtime_error{
+      std::format("Failed to create SDL window: {}", SDL_GetError())
+    };
 }

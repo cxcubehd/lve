@@ -48,12 +48,6 @@ class Renderer final
   Renderer(Renderer&&) = delete;
   auto operator=(Renderer&&) -> Renderer& = delete;
 
-  auto render_frame() -> void;
-
-  // Resize notifications are deliberately cheap. The render loop consumes
-  // the latest size after a short quiet period, coalescing resize event bursts.
-  auto request_resize() noexcept -> void;
-
   private:
   static constexpr std::size_t frames_in_flight_ = 2;
   static constexpr auto resize_settle_time_ = std::chrono::milliseconds{100};
@@ -74,6 +68,14 @@ class Renderer final
 
   std::chrono::steady_clock::time_point resize_deadline_{};
 
+  public:
+  auto render_frame() -> void;
+
+  // Resize notifications are deliberately cheap. The render loop consumes
+  // the latest size after a short quiet period, coalescing resize event bursts.
+  auto request_resize() noexcept -> void;
+
+  private:
   auto init_vulkan_() -> void;
   auto init_instance_() -> void;
   auto init_debug_messenger_() -> void;
