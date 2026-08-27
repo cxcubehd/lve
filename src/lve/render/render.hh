@@ -47,15 +47,9 @@ class Renderer final
   Renderer(Renderer&&) = delete;
   auto operator=(Renderer&&) -> Renderer& = delete;
 
-  [[nodiscard]] auto init() noexcept -> std::expected<void, std::string>;
-  [[nodiscard]] auto render_frame() noexcept
-    -> std::expected<void, std::string>;
-
-  // Resize notifications are deliberately cheap. The render loop consumes
-  // the latest size after a short quiet period, coalescing resize event bursts.
-  auto request_resize() noexcept -> void;
-
   private:
+  bool initialized_{};
+
   static constexpr std::size_t frames_in_flight_ = 2;
   static constexpr auto resize_settle_time_ = std::chrono::milliseconds{100};
 
@@ -66,11 +60,19 @@ class Renderer final
   std::vector<vk::Fence> images_in_flight_{};
 
   std::size_t current_frame_{};
-  bool initialized_{};
   bool debug_utils_enabled_{};
   bool resize_pending_{true};
   bool swapchain_invalid_{};
   std::chrono::steady_clock::time_point resize_deadline_{};
+
+  public:
+  [[nodiscard]] auto init() noexcept -> std::expected<void, std::string>;
+  [[nodiscard]] auto render_frame() noexcept
+    -> std::expected<void, std::string>;
+
+  // Resize notifications are deliberately cheap. The render loop consumes
+  // the latest size after a short quiet period, coalescing resize event bursts.
+  auto request_resize() noexcept -> void;
 
   private:
   auto init_vulkan_() -> void;

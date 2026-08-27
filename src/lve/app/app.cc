@@ -21,19 +21,6 @@ auto App::init() -> std::expected<void, std::string>
   return {};
 }
 
-auto App::init_window_() -> std::expected<void, std::string>
-{
-  window_ = SDL_CreateWindow(
-    "lve", 1000, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
-  );
-  if (!window_)
-    return std::unexpected{
-      std::format("Failed to create SDL window: {}", SDL_GetError())
-    };
-
-  return {};
-}
-
 auto App::iterate() -> std::expected<void, std::string>
 {
   return renderer_->render_frame();
@@ -55,4 +42,17 @@ auto App::handle_event(SDL_Event const& event) noexcept -> void
     default:
       break;
   }
+}
+
+auto App::init_window_() -> std::expected<void, std::string>
+{
+  window_ = SDL_CreateWindow(
+    "lve", 1000, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+  );
+  if (!window_)
+    return std::unexpected{
+      std::format("Failed to create SDL window: {}", SDL_GetError())
+    };
+
+  return {};
 }
