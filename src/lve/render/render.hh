@@ -3,10 +3,8 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <expected>
 #include <optional>
 #include <span>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -66,9 +64,8 @@ class Renderer final
   std::chrono::steady_clock::time_point resize_deadline_{};
 
   public:
-  [[nodiscard]] auto init() noexcept -> std::expected<void, std::string>;
-  [[nodiscard]] auto render_frame() noexcept
-    -> std::expected<void, std::string>;
+  auto init() -> void;
+  auto render_frame() -> void;
 
   // Resize notifications are deliberately cheap. The render loop consumes
   // the latest size after a short quiet period, coalescing resize event bursts.

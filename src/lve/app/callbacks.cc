@@ -47,14 +47,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char** argv)
   try
   {
     auto app = std::make_unique<App>();
-    if (auto const initialized = app->init(); !initialized)
-    {
-      std::println(
-        stderr, "Application initialization failed: {}", initialized.error()
-      );
-      return SDL_APP_FAILURE;
-    }
-
+    app->init();
     *appstate = app.release();
   }
   catch (std::exception const& error)
@@ -86,9 +79,13 @@ SDL_AppResult SDL_AppIterate(void* appstate)
     return SDL_APP_FAILURE;
   }
 
-  if (auto const rendered = static_cast<App*>(appstate)->iterate(); !rendered)
+  try
   {
-    std::println(stderr, "{}", rendered.error());
+    static_cast<App*>(appstate)->iterate();
+  }
+  catch (std::exception const& error)
+  {
+    std::println(stderr, "Rendering failed: {}", error.what());
     return SDL_APP_FAILURE;
   }
 

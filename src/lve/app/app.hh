@@ -1,8 +1,6 @@
 #pragma once
 
-#include <expected>
 #include <memory>
-#include <string>
 
 #include <SDL3/SDL.h>
 
@@ -22,10 +20,10 @@ class App final
   std::unique_ptr<Renderer> renderer_{};
 
   public:
-  [[nodiscard]] auto init() -> std::expected<void, std::string>;
-  [[nodiscard]] auto iterate() -> std::expected<void, std::string>;
+  auto init() -> void;
+  auto iterate() -> void;
   auto handle_event(SDL_Event const& event) noexcept -> void;
 
   private:
-  [[nodiscard]] auto init_window_() -> std::expected<void, std::string>;
+  auto init_window_() -> void;
 };

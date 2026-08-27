@@ -1,6 +1,7 @@
 #include "app.hh"
 
 #include <format>
+#include <stdexcept>
 
 App::~App() noexcept
 {
@@ -9,22 +10,15 @@ App::~App() noexcept
   if (window_) SDL_DestroyWindow(window_);
 }
 
-auto App::init() -> std::expected<void, std::string>
+auto App::init() -> void
 {
-  if (auto const initialized = init_window_(); !initialized)
-    return std::unexpected{initialized.error()};
+  init_window_();
 
   renderer_ = std::make_unique<Renderer>(*window_);
-  if (auto const initialized = renderer_->init(); !initialized)
-    return std::unexpected{initialized.error()};
-
-  return {};
+  renderer_->init();
 }
 
-auto App::iterate() -> std::expected<void, std::string>
-{
-  return renderer_->render_frame();
-}
+auto App::iterate() -> void { renderer_->render_frame(); }
 
 auto App::handle_event(SDL_Event const& event) noexcept -> void
 {
@@ -44,15 +38,13 @@ auto App::handle_event(SDL_Event const& event) noexcept -> void
   }
 }
 
-auto App::init_window_() -> std::expected<void, std::string>
+auto App::init_window_() -> void
 {
   window_ = SDL_CreateWindow(
     "lve", 1000, 600, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
   );
   if (!window_)
-    return std::unexpected{
+    throw std::runtime_error{
       std::format("Failed to create SDL window: {}", SDL_GetError())
     };
-
-  return {};
 }

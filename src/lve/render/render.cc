@@ -50,38 +50,18 @@ Renderer::~Renderer() noexcept
   }
 }
 
-auto Renderer::init() noexcept -> std::expected<void, std::string>
+auto Renderer::init() -> void
 {
-  try
-  {
-    init_vulkan_();
-    initialized_ = true;
-    return {};
-  }
-  catch (std::exception const& error)
-  {
-    return std::unexpected{
-      std::format("Failed to initialize Vulkan renderer: {}", error.what())
-    };
-  }
+  init_vulkan_();
+  initialized_ = true;
 }
 
-auto Renderer::render_frame() noexcept -> std::expected<void, std::string>
+auto Renderer::render_frame() -> void
 {
   if (!initialized_)
-    return std::unexpected{"Renderer used before successful initialization"};
+    throw std::runtime_error{"Renderer used before successful initialization"};
 
-  try
-  {
-    draw_frame_();
-    return {};
-  }
-  catch (std::exception const& error)
-  {
-    return std::unexpected{
-      std::format("Failed to render Vulkan frame: {}", error.what())
-    };
-  }
+  draw_frame_();
 }
 
 auto Renderer::request_resize() noexcept -> void
