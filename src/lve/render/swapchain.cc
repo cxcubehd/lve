@@ -213,11 +213,9 @@ auto Renderer::choose_surface_format_(
   return preferred != formats.end() ? *preferred : formats.front();
 }
 
-auto Renderer::choose_present_mode_(
-  std::span<vk::PresentModeKHR const> present_modes
-) const -> vk::PresentModeKHR
+auto Renderer::choose_present_mode_(std::span<vk::PresentModeKHR const>) const
+  -> vk::PresentModeKHR
 {
-  static_cast<void>(present_modes);
   // FIFO is guaranteed and keeps the empty loop from running unbounded.
   return vk::PresentModeKHR::eFifo;
 }
