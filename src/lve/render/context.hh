@@ -10,8 +10,10 @@ struct RenderContext
   vk::raii::Instance instance{nullptr};
   vk::raii::DebugUtilsMessengerEXT debug_messenger{nullptr};
   vk::raii::SurfaceKHR surface{nullptr};
+
   vk::raii::PhysicalDevice physical_device{nullptr};
   vk::raii::Device device{nullptr};
+
   vk::raii::Queue graphics_queue{nullptr};
   vk::raii::Queue present_queue{nullptr};
 

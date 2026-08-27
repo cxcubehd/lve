@@ -16,6 +16,7 @@ struct FrameResources
 {
   vk::raii::CommandPool command_pool{nullptr};
   vk::raii::CommandBuffer command_buffer{nullptr};
+
   vk::raii::Semaphore image_available{nullptr};
   vk::raii::Fence render_complete{nullptr};
 };
@@ -24,9 +25,11 @@ struct SwapchainResources
 {
   vk::raii::SwapchainKHR swapchain{nullptr};
   std::vector<vk::Image> images{};
+
   std::vector<vk::raii::ImageView> image_views{};
   vk::raii::RenderPass render_pass{nullptr};
   std::vector<vk::raii::Framebuffer> framebuffers{};
+
   std::vector<vk::raii::Semaphore> render_finished{};
 
   vk::Format format{vk::Format::eUndefined};
@@ -37,7 +40,7 @@ struct SwapchainResources
 class Renderer final
 {
   public:
-  explicit Renderer(SDL_Window& window) noexcept;
+  explicit Renderer(SDL_Window& window);
   ~Renderer() noexcept;
 
   Renderer(Renderer const&) = delete;
@@ -45,26 +48,6 @@ class Renderer final
   Renderer(Renderer&&) = delete;
   auto operator=(Renderer&&) -> Renderer& = delete;
 
-  private:
-  bool initialized_{};
-
-  static constexpr std::size_t frames_in_flight_ = 2;
-  static constexpr auto resize_settle_time_ = std::chrono::milliseconds{100};
-
-  SDL_Window& window_;
-  RenderContext context_{};
-  std::array<FrameResources, frames_in_flight_> frames_{};
-  std::optional<SwapchainResources> swapchain_{};
-  std::vector<vk::Fence> images_in_flight_{};
-
-  std::size_t current_frame_{};
-  bool debug_utils_enabled_{};
-  bool resize_pending_{true};
-  bool swapchain_invalid_{};
-  std::chrono::steady_clock::time_point resize_deadline_{};
-
-  public:
-  auto init() -> void;
   auto render_frame() -> void;
 
   // Resize notifications are deliberately cheap. The render loop consumes
@@ -72,6 +55,25 @@ class Renderer final
   auto request_resize() noexcept -> void;
 
   private:
+  static constexpr std::size_t frames_in_flight_ = 2;
+  static constexpr auto resize_settle_time_ = std::chrono::milliseconds{100};
+
+  SDL_Window& window_;
+
+  RenderContext context_{};
+
+  std::array<FrameResources, frames_in_flight_> frames_{};
+  std::optional<SwapchainResources> swapchain_{};
+  std::vector<vk::Fence> images_in_flight_{};
+
+  std::size_t current_frame_{};
+
+  bool debug_utils_enabled_{};
+  bool resize_pending_{true};
+  bool swapchain_invalid_{};
+
+  std::chrono::steady_clock::time_point resize_deadline_{};
+
   auto init_vulkan_() -> void;
   auto init_instance_() -> void;
   auto init_debug_messenger_() -> void;
@@ -84,7 +86,7 @@ class Renderer final
   [[nodiscard]] auto find_queue_families_(
     vk::raii::PhysicalDevice const& physical_device
   ) const -> std::optional<std::pair<std::uint32_t, std::uint32_t>>;
-  [[nodiscard]] auto is_physical_device_suitable_(
+  [[nodiscard]] auto supports_required_device_features_(
     vk::raii::PhysicalDevice const& physical_device
   ) const -> bool;
 
@@ -92,6 +94,10 @@ class Renderer final
   [[nodiscard]] auto create_swapchain_(
     vk::Extent2D drawable_extent, vk::SwapchainKHR old_swapchain
   ) -> SwapchainResources;
+  [[nodiscard]] auto create_render_pass_(vk::Format format)
+    -> vk::raii::RenderPass;
+  auto init_swapchain_image_resources_(SwapchainResources& resources) -> void;
+
   auto update_swapchain_() -> bool;
 
   auto draw_frame_() -> void;

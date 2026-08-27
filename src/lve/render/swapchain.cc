@@ -83,8 +83,16 @@ auto Renderer::create_swapchain_(
   resources.swapchain = vk::raii::SwapchainKHR{context_.device, create_info};
   resources.images = resources.swapchain.getImages();
 
+  resources.render_pass = create_render_pass_(resources.format);
+  init_swapchain_image_resources_(resources);
+
+  return resources;
+}
+
+auto Renderer::create_render_pass_(vk::Format format) -> vk::raii::RenderPass
+{
   auto const attachment = vk::AttachmentDescription{
-    .format = resources.format,
+    .format = format,
     .samples = vk::SampleCountFlagBits::e1,
     .loadOp = vk::AttachmentLoadOp::eClear,
     .storeOp = vk::AttachmentStoreOp::eStore,
@@ -117,12 +125,17 @@ auto Renderer::create_swapchain_(
     .dependencyCount = 1,
     .pDependencies = &dependency,
   };
-  resources.render_pass =
-    vk::raii::RenderPass{context_.device, render_pass_info};
 
+  return vk::raii::RenderPass{context_.device, render_pass_info};
+}
+
+auto Renderer::init_swapchain_image_resources_(SwapchainResources& resources)
+  -> void
+{
   resources.image_views.reserve(resources.images.size());
   resources.framebuffers.reserve(resources.images.size());
   resources.render_finished.reserve(resources.images.size());
+
   for (auto const image : resources.images)
   {
     auto const view_info = vk::ImageViewCreateInfo{
@@ -153,8 +166,6 @@ auto Renderer::create_swapchain_(
       context_.device, vk::SemaphoreCreateInfo{}
     );
   }
-
-  return resources;
 }
 
 auto Renderer::update_swapchain_() -> bool

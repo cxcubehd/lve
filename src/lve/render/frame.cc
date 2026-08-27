@@ -5,13 +5,19 @@
 #include <cstdint>
 #include <stdexcept>
 
+#include <SDL3/SDL_timer.h>
+
 static constexpr auto gpu_wait_timeout = std::chrono::seconds{1};
 static constexpr auto image_acquire_timeout = std::chrono::milliseconds{100};
+static constexpr auto idle_retry_delay_ms = 10U;
 
 auto Renderer::draw_frame_() -> void
 {
-  if ((resize_pending_ || !swapchain_) && !update_swapchain_()) return;
-  if (!swapchain_) return;
+  if ((resize_pending_ || !swapchain_) && !update_swapchain_())
+  {
+    SDL_Delay(idle_retry_delay_ms);
+    return;
+  }
 
   auto& frame = frames_[current_frame_];
   auto const frame_fence = *frame.render_complete;
@@ -142,9 +148,6 @@ auto Renderer::record_empty_frame_(
   command_buffer.beginRenderPass(
     render_pass_info, vk::SubpassContents::eInline
   );
-
-  // Feature-oriented renderers will record here in explicit order: sky, map,
-  // then players. This milestone intentionally submits only the clear.
 
   command_buffer.endRenderPass();
   command_buffer.end();

@@ -59,24 +59,15 @@ SDL_AppResult SDL_AppInit(void** appstate, int, char**)
 
 SDL_AppResult SDL_AppEvent(void* appstate, SDL_Event* event)
 {
-  if (event->type == SDL_EVENT_QUIT)
-  {
-    return SDL_APP_SUCCESS;
-  }
+  if (event->type == SDL_EVENT_QUIT) return SDL_APP_SUCCESS;
 
-  if (appstate) static_cast<App*>(appstate)->handle_event(*event);
+  static_cast<App*>(appstate)->handle_event(*event);
 
   return SDL_APP_CONTINUE;
 }
 
 SDL_AppResult SDL_AppIterate(void* appstate)
 {
-  if (!appstate)
-  {
-    std::println(stderr, "Application state is unavailable");
-    return SDL_APP_FAILURE;
-  }
-
   try
   {
     static_cast<App*>(appstate)->iterate();
@@ -98,7 +89,6 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result)
 
 #ifdef L_RENDER
   SDL_Vulkan_UnloadLibrary();
-  SDL_Quit();
 #endif
 
   std::println(

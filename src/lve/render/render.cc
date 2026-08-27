@@ -32,12 +32,10 @@ static auto has_named_property(
   );
 }
 
-Renderer::Renderer(SDL_Window& window) noexcept : window_{window} {}
+Renderer::Renderer(SDL_Window& window) : window_{window} { init_vulkan_(); }
 
 Renderer::~Renderer() noexcept
 {
-  if (!initialized_) return;
-
   try
   {
     context_.device.waitIdle();
@@ -50,19 +48,7 @@ Renderer::~Renderer() noexcept
   }
 }
 
-auto Renderer::init() -> void
-{
-  init_vulkan_();
-  initialized_ = true;
-}
-
-auto Renderer::render_frame() -> void
-{
-  if (!initialized_)
-    throw std::runtime_error{"Renderer used before successful initialization"};
-
-  draw_frame_();
-}
+auto Renderer::render_frame() -> void { draw_frame_(); }
 
 auto Renderer::request_resize() noexcept -> void
 {
@@ -182,13 +168,6 @@ auto Renderer::init_surface_() -> void
 auto Renderer::init_physical_device_() -> void
 {
   context_.physical_device = select_physical_device_();
-
-  auto const queue_families = find_queue_families_(context_.physical_device);
-  if (!queue_families)
-    throw std::runtime_error{"Selected Vulkan device lost required queues"};
-
-  context_.graphics_queue_family = queue_families->first;
-  context_.present_queue_family = queue_families->second;
 }
 
 auto Renderer::init_device_() -> void
@@ -268,17 +247,22 @@ auto Renderer::select_physical_device_() -> vk::raii::PhysicalDevice
   if (physical_devices.empty())
     throw std::runtime_error{"No Vulkan physical devices were found"};
 
-  auto const selected = std::ranges::find_if(
-    physical_devices, [this](auto const& physical_device)
-    { return is_physical_device_suitable_(physical_device); }
-  );
-  if (selected == physical_devices.end())
-    throw std::runtime_error{
-      "No Vulkan 1.2 device with graphics, presentation, and swapchain support "
-      "was found"
-    };
+  for (auto& physical_device : physical_devices)
+  {
+    auto const queue_families = find_queue_families_(physical_device);
+    if (!queue_families || !supports_required_device_features_(physical_device))
+      continue;
 
-  return std::move(*selected);
+    context_.graphics_queue_family = queue_families->first;
+    context_.present_queue_family = queue_families->second;
+
+    return std::move(physical_device);
+  }
+
+  throw std::runtime_error{
+    "No Vulkan 1.2 device with graphics, presentation, and swapchain support "
+    "was found"
+  };
 }
 
 auto Renderer::find_queue_families_(
@@ -306,13 +290,12 @@ auto Renderer::find_queue_families_(
   return std::nullopt;
 }
 
-auto Renderer::is_physical_device_suitable_(
+auto Renderer::supports_required_device_features_(
   vk::raii::PhysicalDevice const& physical_device
 ) const -> bool
 {
   if (physical_device.getProperties().apiVersion < VK_API_VERSION_1_2)
     return false;
-  if (!find_queue_families_(physical_device)) return false;
 
   auto const extensions = physical_device.enumerateDeviceExtensionProperties();
   if (!has_named_property(

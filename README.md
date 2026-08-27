@@ -20,24 +20,12 @@ Run it with:
 
 ## Renderer milestone
 
-The application now presents a continuously cleared empty frame through a
-two-frame VulkanHpp RAII lifecycle. Debug builds enable the Khronos validation
-layer when it is installed and continue with a warning when it is unavailable.
-Initialization and per-frame failures are reported before SDL exits cleanly.
+The application presents a continuously cleared frame using two frames in
+flight. It recreates the swapchain after window-size changes and pauses frame
+submission while the window is hidden, minimized, or has no drawable area.
 
-Pixel-size, display-scale, minimize, maximize, and restore events only mark the
-swapchain dirty. A 100 ms settle interval coalesces rapid size changes; the
-latest drawable extent is used for one rebuild. Rendering is suspended without
-waiting while the window is hidden, minimized, or has a zero-sized drawable,
-and resumes when a usable extent returns. A device-idle wait occurs only for an
-actual swapchain replacement, so duplicate events and same-size restores do not
-stall or rebuild resources.
-
-Renderer ownership is deliberately concrete: device-wide state,
-swapchain-dependent state, and per-frame state are distinct. Future sky, map,
-and player renderers can be owned by `Renderer`, initialized explicitly, and
-recorded in order at the marked point inside the render pass; none are part of
-this milestone.
+Debug builds use the Khronos validation layer when available. Initialization
+and rendering failures are reported through the SDL application callbacks.
 
 ### Platform notes
 
