@@ -1,73 +1,123 @@
 #pragma once
 
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <utility>
+#include <vector>
+
 #include <SDL3/SDL_video.h>
 
 #include "context.hh"
 
-class Renderer
+struct FrameResources
+{
+  vk::raii::CommandPool command_pool{nullptr};
+  vk::raii::CommandBuffer command_buffer{nullptr};
+
+  vk::raii::Semaphore image_available{nullptr};
+  vk::raii::Fence render_complete{nullptr};
+};
+
+struct SwapchainResources
+{
+  vk::raii::SwapchainKHR swapchain{nullptr};
+  std::vector<vk::Image> images{};
+
+  std::vector<vk::raii::ImageView> image_views{};
+  vk::raii::RenderPass render_pass{nullptr};
+  std::vector<vk::raii::Framebuffer> framebuffers{};
+
+  std::vector<vk::raii::Semaphore> render_finished{};
+
+  vk::Format format{vk::Format::eUndefined};
+  vk::ColorSpaceKHR color_space{vk::ColorSpaceKHR::eSrgbNonlinear};
+  vk::Extent2D extent{};
+};
+
+class Renderer final
 {
   public:
-  Renderer() = default;
+  explicit Renderer(SDL_Window& window);
+  ~Renderer() noexcept;
+
+  Renderer(Renderer const&) = delete;
+  auto operator=(Renderer const&) -> Renderer& = delete;
+  Renderer(Renderer&&) = delete;
+  auto operator=(Renderer&&) -> Renderer& = delete;
+
+  private:
+  static constexpr std::size_t frames_in_flight_ = 2;
+  static constexpr auto resize_settle_time_ = std::chrono::milliseconds{100};
+
+  SDL_Window& window_;
+
+  RenderContext context_{};
+
+  std::array<FrameResources, frames_in_flight_> frames_{};
+  std::optional<SwapchainResources> swapchain_{};
+  std::vector<vk::Fence> images_in_flight_{};
+
+  std::size_t current_frame_{};
+
+  bool debug_utils_enabled_{};
+  bool resize_pending_{true};
+  bool swapchain_invalid_{};
+
+  std::chrono::steady_clock::time_point resize_deadline_{};
 
   public:
-  SDL_Window* sdl_window{};
+  auto render_frame() -> void;
 
-  protected:
-  std::optional<RenderContext> context_;
+  // Resize notifications are deliberately cheap. The render loop consumes
+  // the latest size after a short quiet period, coalescing resize event bursts.
+  auto request_resize() noexcept -> void;
 
-  protected:
-  vk::raii::Context vk_context_{};
-  vk::raii::Instance vk_instance_{nullptr};
-
-  vk::raii::SurfaceKHR vk_surface_{nullptr};
-
-  vk::raii::PhysicalDevice vk_physical_device_{nullptr};
-  vk::raii::Device vk_device_{nullptr};
-
-  vk::raii::Queue vk_graphics_queue_{nullptr};
-  vk::raii::Queue vk_present_queue_{nullptr};
-  vk::raii::Queue vk_transfer_queue_{nullptr};
-
-  std::uint32_t graphics_queue_family_{};
-  std::uint32_t present_queue_family_{};
-  std::uint32_t transfer_queue_family_{};
-
-  vk::raii::SwapchainKHR vk_swapchain_{nullptr};
-
-  vk::Format swapchain_format_{};
-  vk::ColorSpaceKHR swapchain_color_space_{};
-  vk::Extent2D swapchain_extent_{};
-
-  public:
-  auto init() -> void;
-
-  protected:
+  private:
+  auto init_vulkan_() -> void;
   auto init_instance_() -> void;
+  auto init_debug_messenger_() -> void;
   auto init_surface_() -> void;
   auto init_physical_device_() -> void;
   auto init_device_() -> void;
-  auto init_queues_() -> void;
-  auto init_swapchain_() -> void;
+  auto init_frames_() -> void;
 
-  protected:
-  auto select_physical_device_() -> vk::raii::PhysicalDevice;
-  auto is_physical_device_suitable_(
+  [[nodiscard]] auto select_physical_device_() -> vk::raii::PhysicalDevice;
+  [[nodiscard]] auto find_queue_families_(
     vk::raii::PhysicalDevice const& physical_device
-  ) -> bool;
-  auto find_queue_families_(vk::raii::PhysicalDevice const& physical_device)
-    -> void;
+  ) const -> std::optional<std::pair<std::uint32_t, std::uint32_t>>;
+  [[nodiscard]] auto supports_required_device_features_(
+    vk::raii::PhysicalDevice const& physical_device
+  ) const -> bool;
 
-  auto choose_swapchain_format_(
-    std::span<const vk::SurfaceFormatKHR> formats
+  [[nodiscard]] auto drawable_extent_() const -> std::optional<vk::Extent2D>;
+  [[nodiscard]] auto create_swapchain_(
+    vk::Extent2D drawable_extent, vk::SwapchainKHR old_swapchain
+  ) -> SwapchainResources;
+  [[nodiscard]] auto create_render_pass_(vk::Format format)
+    -> vk::raii::RenderPass;
+  auto init_swapchain_image_resources_(SwapchainResources& resources) -> void;
+
+  auto update_swapchain_() -> bool;
+
+  auto draw_frame_() -> void;
+  auto record_empty_frame_(
+    vk::raii::CommandBuffer const& command_buffer, vk::Framebuffer framebuffer,
+    vk::RenderPass render_pass, vk::Extent2D extent
+  ) const -> void;
+
+  [[nodiscard]] auto choose_surface_format_(
+    std::span<vk::SurfaceFormatKHR const> formats
   ) const -> vk::SurfaceFormatKHR;
-  auto choose_swapchain_present_mode_(
-    std::span<const vk::PresentModeKHR> present_modes
+  [[nodiscard]] auto choose_present_mode_(
+    std::span<vk::PresentModeKHR const> present_modes
   ) const -> vk::PresentModeKHR;
-  auto choose_swapchain_extent_(
-    vk::SurfaceCapabilitiesKHR const& capabilities
+  [[nodiscard]] auto choose_extent_(
+    vk::SurfaceCapabilitiesKHR const& capabilities, vk::Extent2D drawable_extent
   ) const -> vk::Extent2D;
-
-  protected:
-  static auto get_sdl_vk_instance_extensions_()
-    -> std::tuple<char const* const*, std::size_t>;
+  [[nodiscard]] auto choose_composite_alpha_(
+    vk::SurfaceCapabilitiesKHR const& capabilities
+  ) const -> vk::CompositeAlphaFlagBitsKHR;
 };

@@ -1,21 +1,30 @@
 #pragma once
 
-#include <expected>
 #include <memory>
-#include <string_view>
 
 #include <SDL3/SDL.h>
 
 #include "lve/render/render.hh"
 
-class App
+class App final
 {
   public:
-  std::unique_ptr<Renderer> renderer{};
+  App() = default;
+  ~App() noexcept;
+
+  App(App const&) = delete;
+  auto operator=(App const&) -> App& = delete;
+
+  private:
+  SDL_Window* window_{};
+
+  std::unique_ptr<Renderer> renderer_{};
 
   public:
-  SDL_Window* sdl_window{};
+  auto init() -> void;
+  auto iterate() -> void;
+  auto handle_event(SDL_Event const& event) noexcept -> void;
 
-  public:
-  auto init_window() -> std::expected<void, std::string_view>;
+  private:
+  auto init_window_() -> void;
 };

@@ -1,339 +1,314 @@
 #include "render.hh"
 
+#include <chrono>
+#include <format>
 #include <ranges>
-#include <set>
+#include <stdexcept>
+#include <string_view>
 
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
-#include <vulkan/vulkan.hpp>
 
-auto Renderer::init() -> void
+#include "lve/log/log_vk.hh"
+
+static constexpr std::string_view validation_layer =
+  "VK_LAYER_KHRONOS_validation";
+static constexpr std::string_view portability_subset =
+  "VK_KHR_portability_subset";
+
+template <typename Property>
+static auto has_named_property(
+  std::span<Property const> properties, std::string_view name
+) -> bool
 {
-  // Init VulkanHpp
+  return std::ranges::any_of(
+    properties,
+    [name](Property const& property)
+    {
+      if constexpr (requires { property.extensionName; })
+        return std::string_view{property.extensionName.data()} == name;
+      else return std::string_view{property.layerName.data()} == name;
+    }
+  );
+}
+
+Renderer::Renderer(SDL_Window& window) : window_{window} { init_vulkan_(); }
+
+Renderer::~Renderer() noexcept
+{
+  try
+  {
+    context_.device.waitIdle();
+  }
+  catch (std::exception const& error)
+  {
+    SDL_LogError(
+      SDL_LOG_CATEGORY_RENDER, "Vulkan shutdown wait failed: %s", error.what()
+    );
+  }
+}
+
+auto Renderer::render_frame() -> void { draw_frame_(); }
+
+auto Renderer::request_resize() noexcept -> void
+{
+  resize_pending_ = true;
+  resize_deadline_ = std::chrono::steady_clock::now() + resize_settle_time_;
+}
+
+auto Renderer::init_vulkan_() -> void
+{
   VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
   init_instance_();
+  VULKAN_HPP_DEFAULT_DISPATCHER.init(*context_.instance);
 
+  init_debug_messenger_();
   init_surface_();
-
   init_physical_device_();
-
   init_device_();
+  VULKAN_HPP_DEFAULT_DISPATCHER.init(*context_.device);
+  init_frames_();
 
-  init_queues_();
-
-  init_swapchain_();
+  // A minimized or hidden window has no drawable extent. In that case the
+  // first usable SDL iteration creates the swapchain without blocking here.
+  update_swapchain_();
 }
 
 auto Renderer::init_instance_() -> void
 {
-  const auto [extensions, extensionCount] = get_sdl_vk_instance_extensions_();
+  auto extension_count = std::uint32_t{};
+  auto const* const* sdl_extensions =
+    SDL_Vulkan_GetInstanceExtensions(&extension_count);
+  if (!sdl_extensions)
+    throw std::runtime_error{
+      std::format("SDL Vulkan extension query failed: {}", SDL_GetError())
+    };
 
-  std::vector<const char*> layers;
+  auto enabled_extensions =
+    std::vector<char const*>{sdl_extensions, sdl_extensions + extension_count};
+  auto const available_extensions =
+    context_.loader.enumerateInstanceExtensionProperties();
 
+  auto instance_flags = vk::InstanceCreateFlags{};
+  if (
+    has_named_property(
+      std::span{available_extensions},
+      VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+    )
+  )
+  {
+    enabled_extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    instance_flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
+  }
+
+  auto enabled_layers = std::vector<char const*>{};
 #ifdef L_DEBUG
-  layers.push_back("VK_LAYER_KHRONOS_validation");
+  auto const available_layers =
+    context_.loader.enumerateInstanceLayerProperties();
+  auto const validation_enabled =
+    has_named_property(std::span{available_layers}, validation_layer);
+  if (validation_enabled) enabled_layers.push_back(validation_layer.data());
+  else
+    SDL_LogWarn(
+      SDL_LOG_CATEGORY_RENDER,
+      "Vulkan validation layer is unavailable; continuing without it"
+    );
+
+  debug_utils_enabled_ = has_named_property(
+    std::span{available_extensions}, VK_EXT_DEBUG_UTILS_EXTENSION_NAME
+  );
+  if (debug_utils_enabled_)
+    enabled_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
 
-  const auto appInfo = vk::ApplicationInfo{
+  auto const application_info = vk::ApplicationInfo{
     .pApplicationName = "lve",
-    .applicationVersion = VK_MAKE_VERSION(0, 0, 1),
+    .applicationVersion = VK_MAKE_API_VERSION(0, 0, 1, 0),
     .pEngineName = "lve",
-    .engineVersion = VK_MAKE_VERSION(0, 0, 1),
+    .engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0),
     .apiVersion = VK_API_VERSION_1_2,
   };
-
-  const auto createInfo = vk::InstanceCreateInfo{
-    .pApplicationInfo = &appInfo,
-    .enabledLayerCount = static_cast<std::uint32_t>(layers.size()),
-    .ppEnabledLayerNames = layers.data(),
-    .enabledExtensionCount = static_cast<std::uint32_t>(extensionCount),
-    .ppEnabledExtensionNames = extensions,
+  auto const debug_info = vk_debug_messenger_create_info();
+  auto const create_info = vk::InstanceCreateInfo{
+    .pNext = debug_utils_enabled_ ? &debug_info : nullptr,
+    .flags = instance_flags,
+    .pApplicationInfo = &application_info,
+    .enabledLayerCount = static_cast<std::uint32_t>(enabled_layers.size()),
+    .ppEnabledLayerNames = enabled_layers.data(),
+    .enabledExtensionCount =
+      static_cast<std::uint32_t>(enabled_extensions.size()),
+    .ppEnabledExtensionNames = enabled_extensions.data(),
   };
 
-  try
-  {
-    vk_instance_ = vk::raii::Instance(vk_context_, createInfo);
-  }
-  catch (const vk::SystemError& e)
-  {
-    throw std::runtime_error(
-      std::format("Failed to create instance: {}", e.what())
-    );
-  }
+  context_.instance = vk::raii::Instance{context_.loader, create_info};
+}
 
-  VULKAN_HPP_DEFAULT_DISPATCHER.init(*vk_instance_);
+auto Renderer::init_debug_messenger_() -> void
+{
+  if (!debug_utils_enabled_) return;
+  context_.debug_messenger = vk::raii::DebugUtilsMessengerEXT{
+    context_.instance, vk_debug_messenger_create_info()
+  };
 }
 
 auto Renderer::init_surface_() -> void
 {
-  if (!sdl_window) throw std::runtime_error("SDL window is not initialized!");
+  auto surface = VkSurfaceKHR{};
+  if (!SDL_Vulkan_CreateSurface(
+        &window_, *context_.instance, nullptr, &surface
+      ))
+    throw std::runtime_error{
+      std::format("SDL Vulkan surface creation failed: {}", SDL_GetError())
+    };
 
-  VkSurfaceKHR surface{};
-  if (!SDL_Vulkan_CreateSurface(sdl_window, *vk_instance_, nullptr, &surface))
-    throw std::runtime_error("Failed to create surface!");
-
-  vk_surface_ = vk::raii::SurfaceKHR(vk_instance_, surface);
+  context_.surface = vk::raii::SurfaceKHR{context_.instance, surface};
 }
 
 auto Renderer::init_physical_device_() -> void
 {
-  vk_physical_device_ = select_physical_device_();
-
-  find_queue_families_(vk_physical_device_);
+  context_.physical_device = select_physical_device_();
 }
 
 auto Renderer::init_device_() -> void
 {
-  constexpr float queue_priority = 1.0f;
+  constexpr auto queue_priority = 1.0F;
+  auto queue_create_infos = std::vector<vk::DeviceQueueCreateInfo>{};
+  queue_create_infos.push_back({
+    .queueFamilyIndex = context_.graphics_queue_family,
+    .queueCount = 1,
+    .pQueuePriorities = &queue_priority,
+  });
+  if (context_.present_queue_family != context_.graphics_queue_family)
+    queue_create_infos.push_back({
+      .queueFamilyIndex = context_.present_queue_family,
+      .queueCount = 1,
+      .pQueuePriorities = &queue_priority,
+    });
 
-  std::set<uint32_t> unique_queue_families{
-    graphics_queue_family_,
-    present_queue_family_,
-    transfer_queue_family_,
-  };
+  auto enabled_extensions =
+    std::vector<char const*>{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+  auto const available_extensions =
+    context_.physical_device.enumerateDeviceExtensionProperties();
+  if (has_named_property(std::span{available_extensions}, portability_subset))
+    enabled_extensions.push_back(portability_subset.data());
 
-  std::vector<vk::DeviceQueueCreateInfo> queue_create_infos;
-
-  for (const auto family : unique_queue_families)
-  {
-    queue_create_infos.emplace_back(
-      vk::DeviceQueueCreateInfo{
-        .queueFamilyIndex = family,
-        .queueCount = 1,
-        .pQueuePriorities = &queue_priority,
-      }
-    );
-  }
-
-  vk::PhysicalDeviceFeatures features{};
-
-  const vk::DeviceCreateInfo create_info{
+  auto const features = vk::PhysicalDeviceFeatures{};
+  auto const create_info = vk::DeviceCreateInfo{
     .queueCreateInfoCount =
       static_cast<std::uint32_t>(queue_create_infos.size()),
     .pQueueCreateInfos = queue_create_infos.data(),
+    .enabledExtensionCount =
+      static_cast<std::uint32_t>(enabled_extensions.size()),
+    .ppEnabledExtensionNames = enabled_extensions.data(),
     .pEnabledFeatures = &features,
   };
 
-  try
-  {
-    vk_device_ = vk_physical_device_.createDevice(create_info);
-  }
-  catch (const vk::SystemError& e)
-  {
-    throw std::runtime_error(
-      std::format("Failed to create logical device: {}", e.what())
-    );
-  }
-
-  VULKAN_HPP_DEFAULT_DISPATCHER.init(*vk_device_);
+  context_.device = context_.physical_device.createDevice(create_info);
+  context_.graphics_queue =
+    context_.device.getQueue(context_.graphics_queue_family, 0);
+  context_.present_queue =
+    context_.device.getQueue(context_.present_queue_family, 0);
 }
 
-auto Renderer::init_queues_() -> void
+auto Renderer::init_frames_() -> void
 {
-  vk_graphics_queue_ = vk_device_.getQueue(graphics_queue_family_, 0);
-  vk_present_queue_ = vk_device_.getQueue(present_queue_family_, 0);
-  vk_transfer_queue_ = vk_device_.getQueue(transfer_queue_family_, 0);
-}
-
-auto Renderer::init_swapchain_() -> void
-{
-  const auto capabilities =
-    vk_physical_device_.getSurfaceCapabilitiesKHR(*vk_surface_);
-
-  const auto formats = vk_physical_device_.getSurfaceFormatsKHR(*vk_surface_);
-
-  const auto present_modes =
-    vk_physical_device_.getSurfacePresentModesKHR(*vk_surface_);
-
-  const auto format = choose_swapchain_format_(formats);
-
-  swapchain_format_ = format.format;
-  swapchain_color_space_ = format.colorSpace;
-  swapchain_extent_ = choose_swapchain_extent_(capabilities);
-
-  const auto image_count = std::min(
-    capabilities.minImageCount + 1,
-    capabilities.maxImageCount != 0 ? capabilities.maxImageCount
-                                    : capabilities.minImageCount + 1
-  );
-
-  const vk::SwapchainCreateInfoKHR create_info{
-    .surface = *vk_surface_,
-    .minImageCount = image_count,
-    .imageFormat = swapchain_format_,
-    .imageColorSpace = swapchain_color_space_,
-    .imageExtent = swapchain_extent_,
-    .imageArrayLayers = 1,
-    .imageUsage = vk::ImageUsageFlagBits::eColorAttachment,
-    .imageSharingMode = vk::SharingMode::eExclusive,
-    .preTransform = capabilities.currentTransform,
-    .compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque,
-    .presentMode = choose_swapchain_present_mode_(present_modes),
-    .clipped = vk::True,
+  auto const command_pool_info = vk::CommandPoolCreateInfo{
+    .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
+    .queueFamilyIndex = context_.graphics_queue_family,
+  };
+  auto const semaphore_info = vk::SemaphoreCreateInfo{};
+  auto const fence_info = vk::FenceCreateInfo{
+    .flags = vk::FenceCreateFlagBits::eSignaled,
   };
 
-  vk_swapchain_ = vk::raii::SwapchainKHR{vk_device_, create_info};
+  for (auto& frame : frames_)
+  {
+    frame.command_pool =
+      vk::raii::CommandPool{context_.device, command_pool_info};
+
+    auto const allocate_info = vk::CommandBufferAllocateInfo{
+      .commandPool = *frame.command_pool,
+      .level = vk::CommandBufferLevel::ePrimary,
+      .commandBufferCount = 1,
+    };
+    auto command_buffers =
+      context_.device.allocateCommandBuffers(allocate_info);
+    frame.command_buffer = std::move(command_buffers.front());
+    frame.image_available =
+      vk::raii::Semaphore{context_.device, semaphore_info};
+    frame.render_complete = vk::raii::Fence{context_.device, fence_info};
+  }
 }
 
 auto Renderer::select_physical_device_() -> vk::raii::PhysicalDevice
 {
-  const auto physical_devices = vk_instance_.enumeratePhysicalDevices();
-
+  auto physical_devices = context_.instance.enumeratePhysicalDevices();
   if (physical_devices.empty())
-    throw std::runtime_error("(Renderer) No Vulkan physical devices found");
+    throw std::runtime_error{"No Vulkan physical devices were found"};
 
-  for (const auto& physical_device : physical_devices)
+  for (auto& physical_device : physical_devices)
   {
-    if (is_physical_device_suitable_(physical_device)) return physical_device;
+    auto const queue_families = find_queue_families_(physical_device);
+    if (!queue_families || !supports_required_device_features_(physical_device))
+      continue;
+
+    context_.graphics_queue_family = queue_families->first;
+    context_.present_queue_family = queue_families->second;
+
+    return std::move(physical_device);
   }
 
-  throw std::runtime_error(
-    "(Renderer) Failed to find a suitable physical device"
-  );
-}
-
-auto Renderer::is_physical_device_suitable_(
-  vk::raii::PhysicalDevice const& physical_device
-) -> bool
-{
-  const auto properties = physical_device.getProperties();
-
-  if (properties.apiVersion < VK_API_VERSION_1_2) return false;
-
-  // Queue families are checked separately.
-  const auto queue_families = physical_device.getQueueFamilyProperties();
-
-  bool has_graphics = false;
-  bool has_present = false;
-  bool has_dedicated_transfer = false;
-
-  for (std::uint32_t i = 0; i < queue_families.size(); ++i)
-  {
-    const auto flags = queue_families[i].queueFlags;
-
-    if (flags & vk::QueueFlagBits::eGraphics) has_graphics = true;
-
-    if (physical_device.getSurfaceSupportKHR(i, *vk_surface_))
-      has_present = true;
-
-    if (
-      (flags & vk::QueueFlagBits::eTransfer) &&
-      !(flags & vk::QueueFlagBits::eGraphics) &&
-      !(flags & vk::QueueFlagBits::eCompute)
-    )
-    {
-      has_dedicated_transfer = true;
-    }
-  }
-
-  return has_graphics && has_present && has_dedicated_transfer;
+  throw std::runtime_error{
+    "No Vulkan 1.2 device with graphics, presentation, and swapchain support "
+    "was found"
+  };
 }
 
 auto Renderer::find_queue_families_(
   vk::raii::PhysicalDevice const& physical_device
-) -> void
+) const -> std::optional<std::pair<std::uint32_t, std::uint32_t>>
 {
-  const auto queue_families = physical_device.getQueueFamilyProperties();
+  auto const properties = physical_device.getQueueFamilyProperties();
+  auto graphics = std::optional<std::uint32_t>{};
+  auto present = std::optional<std::uint32_t>{};
 
-  std::optional<std::uint32_t> graphics;
-  std::optional<std::uint32_t> present;
-  std::optional<std::uint32_t> transfer;
-
-  for (std::uint32_t i = 0; i < queue_families.size(); ++i)
+  for (auto index = std::uint32_t{}; index < properties.size(); ++index)
   {
-    const auto flags = queue_families[i].queueFlags;
-
-    if (!graphics && flags & vk::QueueFlagBits::eGraphics)
-    {
-      graphics = i;
-    }
-
-    if (!present && physical_device.getSurfaceSupportKHR(i, *vk_surface_))
-    {
-      present = i;
-    }
-
-    if (
-      !transfer && flags & vk::QueueFlagBits::eTransfer &&
-      !(flags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute))
-    )
-    {
-      transfer = i;
-    }
-  }
-
-  if (!graphics || !present || !transfer)
-  {
-    throw std::runtime_error(
-      "(Renderer) Failed to find required queue families"
+    auto const supports_graphics = static_cast<bool>(
+      properties[index].queueFlags & vk::QueueFlagBits::eGraphics
     );
+    auto const supports_present =
+      physical_device.getSurfaceSupportKHR(index, *context_.surface);
+
+    if (supports_graphics && supports_present) return {{index, index}};
+    if (supports_graphics && !graphics) graphics = index;
+    if (supports_present && !present) present = index;
   }
 
-  graphics_queue_family_ = *graphics;
-  present_queue_family_ = *present;
-  transfer_queue_family_ = *transfer;
+  if (graphics && present) return {{*graphics, *present}};
+  return std::nullopt;
 }
 
-auto Renderer::choose_swapchain_format_(
-  std::span<const vk::SurfaceFormatKHR> formats
-) const -> vk::SurfaceFormatKHR
+auto Renderer::supports_required_device_features_(
+  vk::raii::PhysicalDevice const& physical_device
+) const -> bool
 {
-  const auto it = std::ranges::find_if(
-    formats,
-    [](auto const& format)
-    {
-      return format.format == vk::Format::eB8G8R8A8Srgb &&
-        format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
-    }
-  );
+  if (physical_device.getProperties().apiVersion < VK_API_VERSION_1_2)
+    return false;
 
-  return it != formats.end() ? *it : formats.front();
-}
+  auto const extensions = physical_device.enumerateDeviceExtensionProperties();
+  if (!has_named_property(
+        std::span{extensions}, VK_KHR_SWAPCHAIN_EXTENSION_NAME
+      ))
+    return false;
 
-auto Renderer::choose_swapchain_present_mode_(
-  std::span<const vk::PresentModeKHR> present_modes
-) const -> vk::PresentModeKHR
-{
-  // FIFO is guaranteed by Vulkan and is generally the sensible default.
-  return vk::PresentModeKHR::eFifo;
-}
+  auto const capabilities =
+    physical_device.getSurfaceCapabilitiesKHR(*context_.surface);
+  if (!(capabilities.supportedUsageFlags &
+        vk::ImageUsageFlagBits::eColorAttachment))
+    return false;
 
-auto Renderer::choose_swapchain_extent_(
-  vk::SurfaceCapabilitiesKHR const& capabilities
-) const -> vk::Extent2D
-{
-  if (
-    capabilities.currentExtent.width !=
-    std::numeric_limits<std::uint32_t>::max()
-  )
-    return capabilities.currentExtent;
-
-  int width{};
-  int height{};
-
-  SDL_GetWindowSizeInPixels(sdl_window, &width, &height);
-
-  return {
-    .width = std::clamp(
-      static_cast<std::uint32_t>(width), capabilities.minImageExtent.width,
-      capabilities.maxImageExtent.width
-    ),
-    .height = std::clamp(
-      static_cast<std::uint32_t>(height), capabilities.minImageExtent.height,
-      capabilities.maxImageExtent.height
-    ),
-  };
-}
-
-auto Renderer::get_sdl_vk_instance_extensions_()
-  -> std::tuple<char const* const*, std::size_t>
-{
-  std::uint32_t vk_extension_count{};
-  const auto vk_extensions =
-    SDL_Vulkan_GetInstanceExtensions(&vk_extension_count);
-
-  if (!vk_extensions)
-    throw std::runtime_error("Failed to get SDL vk instance extensions");
-
-  return {vk_extensions, vk_extension_count};
+  return !physical_device.getSurfaceFormatsKHR(*context_.surface).empty() &&
+    !physical_device.getSurfacePresentModesKHR(*context_.surface).empty();
 }
