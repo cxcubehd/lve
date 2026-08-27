@@ -49,6 +49,7 @@ class Renderer
   auto init_queues_() -> void;
   auto init_swapchain_() -> void;
 
+  protected:
   auto select_physical_device_() -> vk::raii::PhysicalDevice;
   auto is_physical_device_suitable_(
     vk::raii::PhysicalDevice const& physical_device
@@ -66,6 +67,7 @@ class Renderer
     vk::SurfaceCapabilitiesKHR const& capabilities
   ) const -> vk::Extent2D;
 
-  static auto get_sdl_vk_instance_extensions()
+  protected:
+  static auto get_sdl_vk_instance_extensions_()
     -> std::tuple<char const* const*, std::size_t>;
 };

@@ -26,7 +26,7 @@ auto Renderer::init() -> void
 
 auto Renderer::init_instance_() -> void
 {
-  const auto [extensions, extensionCount] = get_sdl_vk_instance_extensions();
+  const auto [extensions, extensionCount] = get_sdl_vk_instance_extensions_();
 
   std::vector<const char*> layers;
 
@@ -325,7 +325,7 @@ auto Renderer::choose_swapchain_extent_(
   };
 }
 
-auto Renderer::get_sdl_vk_instance_extensions()
+auto Renderer::get_sdl_vk_instance_extensions_()
   -> std::tuple<char const* const*, std::size_t>
 {
   std::uint32_t vk_extension_count{};
