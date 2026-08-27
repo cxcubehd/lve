@@ -18,7 +18,9 @@ class Renderer
   protected:
   vk::raii::Context vk_context_{};
   vk::raii::Instance vk_instance_{nullptr};
+
   vk::raii::SurfaceKHR vk_surface_{nullptr};
+
   vk::raii::PhysicalDevice vk_physical_device_{nullptr};
   vk::raii::Device vk_device_{nullptr};
 

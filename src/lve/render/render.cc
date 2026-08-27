@@ -255,8 +255,7 @@ auto Renderer::find_queue_families_(
 
     if (
       !transfer && flags & vk::QueueFlagBits::eTransfer &&
-      !(flags & vk::QueueFlagBits::eGraphics) &&
-      !(flags & vk::QueueFlagBits::eCompute)
+      !(flags & (vk::QueueFlagBits::eGraphics | vk::QueueFlagBits::eCompute))
     )
     {
       transfer = i;
